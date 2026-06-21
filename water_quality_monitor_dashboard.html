@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Water Quality Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+<!-- Gauges -->
+<script src="https://cdn.jsdelivr.net/npm/raphael@2.3.0/raphael.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/justgage@1.3.5/justgage.min.js"></script>
+
+<!-- Chart -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+}
+
+body{
+  font-family:Arial, sans-serif;
+  background:#0f172a;
+  color:white;
+  padding:15px;
+}
+
+h1{
+  text-align:center;
+  margin-bottom:10px;
+}
+
+#status{
+  text-align:center;
+  margin-bottom:15px;
+  font-weight:bold;
+}
+
+.gauge-container{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:15px;
+}
+
+.gauge-box{
+  background:#020617;
+  border-radius:14px;
+  padding:10px;
+  text-align:center;
+  box-shadow:0 0 10px rgba(0,0,0,0.4);
+}
+
+.gauge-value{
+  font-size:22px;
+  font-weight:bold;
+  margin-top:-10px;
+}
+
+.chart-box{
+  background:#020617;
+  border-radius:14px;
+  padding:15px;
+  margin-top:20px;
+}
+
+canvas{
+  width:100% !important;
+  height:280px !important;
+}
+
+label{
+  display:block;
+  margin-top:15px;
+}
+
+input[type=range]{
+  width:100%;
+}
+
+span{
+  font-size:15px;
+}
+
+button{
+  width:100%;
+  margin-top:20px;
+  padding:12px;
+  background:#16a34a;
+  color:white;
+  border:none;
+  border-radius:10px;
+  font-size:16px;
+  cursor:pointer;
+}
+
+button:hover{
+  background:#15803d;
+}
+
+.value-good{
+  color:#22c55e;
+}
+
+.value-warn{
+  color:#facc15;
+}
+
+.value-bad{
+  color:#dc2626;
+}
+#statusBox{
+  position:fixed;
+  top:12px;
+  left:12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#020617;
+  padding:8px 14px;
+  border-radius:30px;
+  box-shadow:0 0 10px rgba(0,0,0,0.4);
+  z-index:999;
+}
+
+#statusDot{
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:orange;
+}
+
+#statusText{
+  font-size:14px;
+  font-weight:bold;
+}
+
+.status-indicator{
+
+    width:14px;
+
+    height:14px;
+
+    border-radius:50%;
+
+    background:#ff3b3b;
+
+    box-shadow:0 0 10px #ff3b3b;
+
+    transition:0.3s;
+}
+
+.status-indicator.active{
+
+    background:#00ff88;
+
+    box-shadow:0 0 15px #00ff88;
+}
+
+</style>
+</head>
+
+<body>
+
+<h1>💧 Water Quality Monitoring</h1>
+
+<div class="device-status" id="deviceStatus">
+
+    <div class="status-dot"></div>
+
+    <span id="statusText">
+        OFFLINE
+    </span>
+
+</div>
+
+<!-- ================= GAUGES ================= -->
+<div class="gauge-container">
+
+  <div class="gauge-box">
+    <div id="tdsGauge" style="width:160px;height:130px;margin:auto;"></div>
+    <div id="tdsValue" class="gauge-value">0 ppm</div>
+  </div>
+
+  <div class="gauge-box">
+    <div id="turbGauge" style="width:160px;height:130px;margin:auto;"></div>
+    <div id="turbValue" class="gauge-value">0 NTU</div>
+  </div>
+
+  <div class="gauge-box">
+    <div id="tempGauge" style="width:160px;height:130px;margin:auto;"></div>
+    <div id="tempValue" class="gauge-value">0 °C</div>
+  </div>
+
+  <div class="gauge-box">
+    <div id="phGauge" style="width:160px;height:130px;margin:auto;"></div>
+    <div id="phValue" class="gauge-value">7.0</div>
+  </div>
+
+</div>
+
+<!-- ================= CHART ================= -->
+<div class="chart-box">
+  <canvas id="combinedChart"></canvas>
+</div>
+
+<!-- ================= CALIBRATION ================= -->
+<div class="chart-box">
+
+  <h2 style="text-align:center;">⚙️ Calibration Panel</h2>
+
+  <label>TDS Factor</label>
+  <input type="range" min="0.1" max="3" step="0.01" id="tdsFactor">
+  <span id="tdsVal">1.00</span>
+
+  <label>Turbidity Offset</label>
+  <input type="range" min="-5" max="5" step="0.1" id="turbOffset">
+  <span id="turbVal">0.0</span>
+
+  <label>Temperature Offset</label>
+  <input type="range" min="-5" max="5" step="0.1" id="tempOffset">
+  <span id="tempVal">0.0</span>
+
+  <label>pH Offset</label>
+  <input type="range" min="-3" max="3" step="0.1" id="phOffset">
+  <span id="phVal">0.0</span>
+
+  <button onclick="saveCalibration()">💾 Save Calibration</button>
+
+</div>
+
+<script>
+
+/* ================= FIREBASE ================= */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDaZqZPV6XjNK5cqLpArysfYikZMOnfdgQ",
+  authDomain: "iot-water-quality-a3f25.firebaseapp.com",
+  databaseURL: "https://iot-water-quality-a3f25-default-rtdb.firebaseio.com",
+  projectId: "iot-water-quality-a3f25",
+  storageBucket: "iot-water-quality-a3f25.firebasestorage.app",
+  messagingSenderId: "174683837093",
+  appId: "1:174683837093:web:0e9b582d23804d8bfc334c"
+};
+firebase.initializeApp(firebaseConfig);
+
+/* ================= LOGIN ================= */
+
+firebase.auth().signInWithEmailAndPassword(
+  "smaity2358@gmail.com",
+  "12345678"
+)
+.then(() => {
+  console.log("Firebase Login Success");
+})
+.catch((error) => {
+  alert(error.message);
+});
+
+/* ================= DATABASE ================= */
+
+var db = firebase.database();
+
+/* ================= CONNECTION STATUS ================= */
+
+
+
+
+
+/* ================= GAUGES ================= */
+
+var tdsGauge = new JustGage({
+  id:"tdsGauge",
+  value:0,
+  min:0,
+  max:1000,
+  title:"TDS",
+  label:"ppm",
+  customSectors:[
+    {color:"#22c55e", lo:0, hi:300},
+    {color:"#facc15", lo:301, hi:500},
+    {color:"#dc2626", lo:501, hi:1000}
+  ]
+});
+
+var turbGauge = new JustGage({
+  id:"turbGauge",
+  value:0,
+  min:0,
+  max:10,
+  title:"Turbidity",
+  label:"NTU",
+  customSectors:[
+    {color:"#22c55e", lo:0, hi:1},
+    {color:"#facc15", lo:1.1, hi:5},
+    {color:"#dc2626", lo:5.1, hi:10}
+  ]
+});
+
+var tempGauge = new JustGage({
+  id:"tempGauge",
+  value:0,
+  min:0,
+  max:50,
+  title:"Temperature",
+  label:"°C",
+  customSectors:[
+    {color:"#22c55e", lo:0, hi:30},
+    {color:"#facc15", lo:31, hi:40},
+    {color:"#dc2626", lo:41, hi:50}
+  ]
+});
+
+var phGauge = new JustGage({
+  id:"phGauge",
+  value:7,
+  min:0,
+  max:14,
+  title:"pH",
+  label:"pH",
+  customSectors:[
+    {color:"#dc2626", lo:0, hi:6.4},
+    {color:"#22c55e", lo:6.5, hi:8.5},
+    {color:"#facc15", lo:8.6, hi:14}
+  ]
+});
+
+/* ================= CHART ================= */
+
+var ctx = document.getElementById("combinedChart").getContext("2d");
+
+var combinedChart = new Chart(ctx, {
+
+  type:"line",
+
+  data:{
+    labels:[],
+    datasets:[
+
+      {
+        label:"TDS",
+        data:[],
+        borderColor:"#22c55e",
+        fill:false,
+        tension:0.4
+      },
+
+      {
+        label:"Turbidity",
+        data:[],
+        borderColor:"#38bdf8",
+        fill:false,
+        tension:0.4
+      },
+
+      {
+        label:"Temperature",
+        data:[],
+        borderColor:"#facc15",
+        fill:false,
+        tension:0.4
+      },
+
+      {
+        label:"pH",
+        data:[],
+        borderColor:"#ff66ff",
+        fill:false,
+        tension:0.4
+      }
+
+    ]
+  },
+
+  options:{
+
+    responsive:true,
+
+    maintainAspectRatio:false,
+
+    interaction:{
+      intersect:false,
+      mode:'index'
+    },
+
+    plugins:{
+      legend:{
+        labels:{
+          color:"white"
+        }
+      }
+    },
+
+    scales:{
+
+      x:{
+        ticks:{
+          color:"white"
+        }
+      },
+
+      y:{
+        ticks:{
+          color:"white"
+        }
+      }
+
+    }
+
+  }
+
+});
+
+/* ================= LIVE DATA ================= */
+
+db.ref("waterQuality/live").on("value", function(snapshot){
+
+  if(!snapshot.exists()) return;
+
+  let data = snapshot.val();
+
+  if(!data.calibrated) return;
+
+  let d = data.calibrated;
+
+  let tds = d.tds || 0;
+  let turb = d.turbidity || 0;
+  let temp = d.temperature || 0;
+  let ph = d.ph || 7;
+
+  /* ===== REFRESH GAUGES ===== */
+
+  tdsGauge.refresh(tds);
+  turbGauge.refresh(turb);
+  tempGauge.refresh(temp);
+  phGauge.refresh(ph);
+
+  /* ===== UPDATE TEXT ===== */
+
+  tdsValue.innerHTML = tds.toFixed(0) + " ppm";
+  turbValue.innerHTML = turb.toFixed(1) + " NTU";
+  tempValue.innerHTML = temp.toFixed(1) + " °C";
+  phValue.innerHTML = ph.toFixed(1);
+
+  /* ===== CHART ===== */
+
+  let time = new Date().toLocaleTimeString();
+
+  combinedChart.data.labels.push(time);
+
+  combinedChart.data.datasets[0].data.push(tds);
+  combinedChart.data.datasets[1].data.push(turb);
+  combinedChart.data.datasets[2].data.push(temp);
+  combinedChart.data.datasets[3].data.push(ph);
+
+  /* LIMIT CHART */
+
+  if(combinedChart.data.labels.length > 50){
+
+    combinedChart.data.labels.shift();
+
+    combinedChart.data.datasets.forEach(ds=>{
+      ds.data.shift();
+    });
+
+  }
+
+  combinedChart.update();
+
+});
+
+/* ================= CALIBRATION ================= */
+
+const calibRef = db.ref("waterQuality/calibration");
+
+calibRef.on("value", function(snapshot){
+
+  if(!snapshot.exists()) return;
+
+  let c = snapshot.val();
+
+  tdsFactor.value = c.tdsFactor || 1;
+  turbOffset.value = c.turbOffset || 0;
+  tempOffset.value = c.tempOffset || 0;
+  phOffset.value = c.phOffset || 0;
+
+  tdsVal.innerHTML = tdsFactor.value;
+  turbVal.innerHTML = turbOffset.value;
+  tempVal.innerHTML = tempOffset.value;
+  phVal.innerHTML = phOffset.value;
+
+});
+
+/* ================= SLIDER VALUES ================= */
+
+tdsFactor.oninput = () => tdsVal.innerHTML = tdsFactor.value;
+
+turbOffset.oninput = () => turbVal.innerHTML = turbOffset.value;
+
+tempOffset.oninput = () => tempVal.innerHTML = tempOffset.value;
+
+phOffset.oninput = () => phVal.innerHTML = phOffset.value;
+
+/* ================= SAVE CALIBRATION ================= */
+
+function saveCalibration(){
+
+  calibRef.set({
+
+    tdsFactor: parseFloat(tdsFactor.value),
+
+    turbOffset: parseFloat(turbOffset.value),
+
+    tempOffset: parseFloat(tempOffset.value),
+
+    phOffset: parseFloat(phOffset.value)
+
+  })
+
+  .then(()=>{
+
+    alert("Calibration Saved");
+
+  })
+
+  .catch((error)=>{
+
+    alert(error.message);
+
+  });
+
+}
+
+setInterval(()=>{
+
+    const now = Date.now();
+
+    const diff = now - lastFirebaseUpdate;
+
+    const dot =
+        document.querySelector('.status-dot');
+
+    const text =
+        document.getElementById('statusText');
+
+    // 15 seconds timeout
+
+    if(diff < 3600){
+
+        dot.classList.add('online');
+
+        text.innerHTML = "ONLINE";
+
+    }else{
+
+        dot.classList.remove('online');
+
+        text.innerHTML = "OFFLINE";
+    }
+
+},2000);
+
+</script>
+
+</body>
+</html>
